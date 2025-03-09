@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "./src/InterfaceConnection.h"
+#include "./src/LoraHandling.h"
 
 int main() {
 
