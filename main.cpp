@@ -1,13 +1,19 @@
-#include <cstring>
 #include <iostream>
-#include <netinet/in.h>
+#include <string>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
 
-using namespace std;
+#include "./src/InterfaceConnection.h"
 
 int main() {
 
-    // creating socket
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    InterfaceConnection server(8080);
+
+    if (!server.createSocket()) return 1;
+
+    server.createConnection();
+    server.clientHandling();
+
+    return 0;
 }

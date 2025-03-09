@@ -1,0 +1,21 @@
+# Ignore object files
+*.o
+
+# Ignore compiled binary executables
+lora
+
+# Ignore build artifacts
+/build/
+/bin/
+
+# Ignore VSCode settings and workspace files
+.vscode/
+
+# Ignore temporary files
+*.swp
+*.swo
+*.tmp
+
+# Ignore system files (optional)
+.DS_Store
+Thumbs.db
