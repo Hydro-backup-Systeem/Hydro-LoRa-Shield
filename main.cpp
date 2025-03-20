@@ -9,12 +9,15 @@
 
 int main() {
 
-    InterfaceConnection server(8080);
 
-    if (!server.createSocket()) return 1;
+    // -- Socket handling 
+    // InterfaceConnection server(8080);
 
-    server.createConnection();
-    server.clientHandling();
+    // if (!server.createSocket()) return 1;
+
+    // server.createConnection();
+    // server.clientHandling();
+    
 
     return 0;
 }
