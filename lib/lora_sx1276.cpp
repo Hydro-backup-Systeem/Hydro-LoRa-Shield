@@ -2,6 +2,12 @@
 // Licensed under the MIT license.
 #include "lora_sx1276.h"
 
+#include <string.h>
+#include <iostream>
+
+#include <chrono>
+#include <thread>
+
 // sx1276 registers
 #define REG_FIFO                 0x00
 #define REG_OP_MODE              0x01
@@ -87,24 +93,15 @@
 // Reads single register
 static uint8_t read_register(lora_sx1276 *lora, uint8_t address)
 {
-  uint8_t value = 0;
-
   // 7bit controls read/write mode
   CLEAR_BIT(address, BIT_7);
 
-  // Start SPI transaction
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-  // Transmit reg address, then receive it value
-  uint32_t res1 = HAL_SPI_Transmit(lora->spi, &address, 1, lora->spi_timeout);
-  uint32_t res2 = HAL_SPI_Receive(lora->spi, &value, 1, lora->spi_timeout);
-  // End SPI transaction
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
+  uint8_t tx[2] = { address, 0 };
+  uint8_t rx[2] = { 0 };
 
-  if (res1 != HAL_OK || res2 != HAL_OK) {
-    DEBUGF("SPI transmit/receive failed (%d %d)", res1, res2);
-  }
+  lora->spi->xfer(tx, 2, rx, 2);
 
-  return value;
+  return rx[1];
 }
 
 // Writes single register
@@ -115,16 +112,9 @@ static void write_register(lora_sx1276 *lora, uint8_t address, uint8_t value)
 
   // Reg address + its new value
   uint16_t payload = (value << 8) | address;
+  uint8_t tx[2] = { address, value };
 
-  // Start SPI transaction, send address + value
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-  uint32_t res = HAL_SPI_Transmit(lora->spi, (uint8_t*)&payload, 2, lora->spi_timeout);
-  // End SPI transaction
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
-
-  if (res != HAL_OK) {
-    DEBUGF("SPI transmit failed: %d", res);
-  }
+  lora->spi->write(tx, sizeof(tx));
 }
 
 // Copies bytes from buffer into radio FIFO given len length
@@ -133,43 +123,27 @@ static void write_fifo(lora_sx1276 *lora, uint8_t *buffer, uint8_t len, uint8_t 
   uint8_t address = REG_FIFO | BIT_7;
 
   // Start SPI transaction, send address
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-  uint32_t res1 = HAL_SPI_Transmit(lora->spi, &address, 1, lora->spi_timeout);
-  if (mode == TRANSFER_MODE_DMA) {
-    HAL_SPI_Transmit_DMA(lora->spi, buffer, len);
-    // Intentionally leave SPI active - let DMA finish transfer
-    return;
-  }
-  uint32_t res2 = HAL_SPI_Transmit(lora->spi, buffer, len, lora->spi_timeout);
-  // End SPI transaction
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
 
-  if (res1 != HAL_OK || res2 != HAL_OK) {
-    DEBUGF("SPI transmit failed");
-  }
+  lora->spi->write(&address, 1);
+  lora->spi->write(buffer, len);
 }
 
 // Reads data "len" size from FIFO into buffer
 static void read_fifo(lora_sx1276 *lora, uint8_t *buffer, uint8_t len, uint8_t mode)
 {
-  uint8_t address = REG_FIFO;
+  len = len + 1;
+  
+  uint8_t* tx = new uint8_t[len];
+  uint8_t* rx = new uint8_t[len];
+  
+  tx[0] = REG_FIFO;
 
-  // Start SPI transaction, send address
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-  uint32_t res1 = HAL_SPI_Transmit(lora->spi, &address, 1, lora->spi_timeout);
-  uint32_t res2;
-  if (mode == TRANSFER_MODE_DMA) {
-    res2 = HAL_SPI_Receive_DMA(lora->spi, buffer, len);
-    // Do not end SPI here - must be done externally when DMA done
-  } else {
-    res2 = HAL_SPI_Receive(lora->spi, buffer, len, lora->spi_timeout);
-    // End SPI transaction
-    HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
-  }
+  lora->spi->xfer(tx, len, rx, len);
 
-  if (res1 != HAL_OK || res2 != HAL_OK) {
-    DEBUGF("SPI receive/transmit failed");
-  }
+  memcpy(buffer, &rx[1], len - 1);
+
+  delete[] tx;
+  delete[] rx;
 }
 
 static void set_mode(lora_sx1276 *lora, uint8_t mode)
@@ -486,10 +460,7 @@ uint8_t lora_send_packet_dma_start(lora_sx1276 *lora, uint8_t *data, uint8_t dat
 // Finish packet send initiated by lora_send_packet_dma_start()
 void  lora_send_packet_dma_complete(lora_sx1276 *lora)
 {
-  // End transfer
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
-  // Send packet
-  set_mode(lora, OPMODE_TX);
+  throw "Meow";
 }
 
 uint8_t lora_send_packet_blocking(lora_sx1276 *lora, uint8_t *data, uint8_t data_len, uint32_t timeout)
@@ -508,7 +479,7 @@ uint8_t lora_send_packet_blocking(lora_sx1276 *lora, uint8_t *data, uint8_t data
         write_register(lora, REG_IRQ_FLAGS, IRQ_FLAGS_TX_DONE);
         return LORA_OK;
       }
-      HAL_Delay(1);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
       elapsed++;
     }
   }
@@ -621,8 +592,7 @@ uint8_t lora_receive_packet_dma_start(lora_sx1276 *lora, uint8_t *buffer, uint8_
 
 void lora_receive_packet_dma_complete(lora_sx1276 *lora)
 {
-  // Nothing to do expect - just end SPI transaction
-  HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
+  throw "Woef";
 }
 
 uint8_t lora_receive_packet_blocking(lora_sx1276 *lora, uint8_t *buffer, uint8_t buffer_len,
@@ -637,7 +607,7 @@ uint8_t lora_receive_packet_blocking(lora_sx1276 *lora, uint8_t *buffer, uint8_t
     if (lora_is_packet_available(lora)) {
       break;
     }
-    HAL_Delay(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
     elapsed++;
   }
 
@@ -671,15 +641,12 @@ void lora_clear_interrupt_rx_all(lora_sx1276 *lora)
 }
 
 
-uint8_t lora_init(lora_sx1276 *lora, SPI_HandleTypeDef *spi, GPIO_TypeDef *nss_port,
-    uint16_t nss_pin, uint64_t freq)
+uint8_t lora_init(lora_sx1276 *lora, SPI *spi, uint64_t freq)
 {
   assert_param(lora && spi);
 
   // Init params with default values
   lora->spi = spi;
-  lora->nss_port = nss_port;
-  lora->nss_pin = nss_pin;
   lora->frequency = freq;
   lora->pa_mode = LORA_PA_OUTPUT_PA_BOOST;
   lora->tx_base_addr = LORA_DEFAULT_TX_ADDR;
@@ -688,8 +655,9 @@ uint8_t lora_init(lora_sx1276 *lora, SPI_HandleTypeDef *spi, GPIO_TypeDef *nss_p
 
   // Check version
   uint8_t ver = lora_version(lora);
+  
   if (ver != LORA_COMPATIBLE_VERSION) {
-    DEBUGF("Got wrong radio version 0x%x, expected 0x12", ver);
+    printf("Got wrong radio version 0x%x, expected 0x12", ver);
     return LORA_ERROR;
   }
 

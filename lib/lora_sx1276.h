@@ -4,9 +4,14 @@
 #ifndef __LORA_H
 #define __LORA_H
 
-#include "main.h"
+#include <spidev_lib++.h>
 
 #define LORA_MAX_PACKET_SIZE               128
+
+#define assert_param(expr) ((void)0U)
+
+#define SET_BIT(REG, BIT)     ((REG) |= (BIT))
+#define CLEAR_BIT(REG, BIT)   ((REG) &= ~(BIT))
 
 // Operational frequency
 #define MHZ                                1000000LLU
@@ -60,8 +65,7 @@ enum {
 // LORA definition
 typedef struct {
   // SPI parameters
-  SPI_HandleTypeDef  *spi;
-  GPIO_TypeDef       *nss_port;
+  SPI  *spi;
   uint32_t            spi_timeout;
   // Operating frequency, in Hz
   uint32_t            frequency;
@@ -88,8 +92,7 @@ typedef struct {
 // Returns:
 //  - `LORA_OK` - modem initialized successfully
 //  - `LORA_ERROR` - initialization failed (e.g. no modem present on SPI bus / wrong NSS port/pin)
-uint8_t  lora_init(lora_sx1276 *lora, SPI_HandleTypeDef *spi, GPIO_TypeDef *nss_port,
-                   uint16_t nss_pin, uint64_t freq);
+uint8_t  lora_init(lora_sx1276 *lora, SPI* spi, uint64_t freq);
 
 // Returns LoRa modem version number (usually 0x12)
 uint8_t  lora_version(lora_sx1276 *lora);
