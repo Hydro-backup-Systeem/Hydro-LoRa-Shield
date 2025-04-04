@@ -1,12 +1,13 @@
 #pragma once 
 
-#include <stdint.h>
+#include <ctime>
 #include <vector>
 #include <unordered_map>
 
+#include <stdint.h>
+
 #include "packet.h"
 #include "lora_sx1276.h"
-#include <ctime>
 
 #define LEASE_TIME_MS              2500
 
@@ -35,7 +36,8 @@ class PacketHandler {
     PacketHandler();
 
   public:
-    void poll();
+    void clean();
+    void receive_mode();
     void send(uint8_t* data, uint32_t size);
     void receive();
 

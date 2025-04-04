@@ -26,16 +26,21 @@ PacketHandler::PacketHandler() {
   }
 }
 
-void PacketHandler::poll() {
+void PacketHandler::clean() {
   time_t now = time(NULL);
 
   // Remove expired messages if no response is received
   std::erase_if(messages, [now](const auto& pair) {
     return pair.first.expiration <= now;
   });
-  
+
   receive();
 };
+
+void PacketHandler::receive_mode() {
+  lora_mode_receive_continuous(&lora);
+  lora_enable_interrupt_rx_done(&lora);
+}
 
 void PacketHandler::send(uint8_t* data, uint32_t size) {
   const uint8_t MAX_SIZE = PACKET_MAX_SIZE;
@@ -92,10 +97,9 @@ void PacketHandler::receive(){
   lora_mode_receive_continuous(&lora);
 
   // Blocking call: wait for an incoming packet.
-  uint8_t rx_received = lora_receive_packet_blocking(&lora, rx_buffer, sizeof(rx_buffer), 500, &error);
+  uint8_t rx_received = lora_receive_packet_blocking(&lora, rx_buffer, sizeof(rx_buffer), 1000, &error);
 
   if (rx_received == 0 || error != LORA_OK) {
-    // printf("0 bytes received - Error: %d\n\r", error);
     return;
   }
   

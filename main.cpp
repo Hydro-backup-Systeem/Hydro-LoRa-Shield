@@ -1,76 +1,114 @@
+#include <wiringPi.h>
 #include <iostream>
-#include <string>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <math.h>
-
-#include "./src/InterfaceConnection.h"
-#include "./src/LoraHandling.h"
-
-#include "./lib/lora_sx1276.h"
-#include "./lib/packethandler.h"
-#include <signal.h>
-#include <string.h>
-
-#include <mutex>
 #include <atomic>
-#include <chrono>
+#include <cstdio>
+#include <cstring>
+
 #include <thread>
+#include <chrono>
 #include <csignal>
 
-std::atomic<bool> shutdown_flag(false);
+// Include your PacketHandler and other Lora handling code
+#include "./lib/packethandler.h"
 
-// PacketHandler instance and mutex
-std::mutex lora_mtx;
+// Define the state machine as before
+enum class State {
+  Init,
+  Send,
+  Receive,
+  Wait,
+  Shutdown
+};
+
+// Use an atomic state variable to share state between ISR and main thread.
+static std::atomic<State> state{State::Init};
+static std::atomic<bool>  shutdown_flag(false);
+
+// PacketHandler instance (global for simplicity)
 static PacketHandler packetHandler;
 
-void send_thread() {
-    // -- Socket handling 
-    // InterfaceConnection server(8080);
-    
-    // if (!server.createSocket()) return 1;
-    
-    // server.createConnection();
-
-    char buffer[] = "Testing Lora\n";
-
-    while (true) {
-        lora_mtx.lock();
-        packetHandler.send((uint8_t *) buffer, sizeof(buffer));
-        lora_mtx.unlock();
-
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-
-        // Shutdown
-        if (shutdown_flag.load()) break;
-    }
+// GPIO ISR callback for GPIO7 (wiringPi numbering)
+// This function will be called when a falling edge is detected on GPIO7.
+void gpioInterrupt() {
+  state.store(State::Receive);
 }
 
-void receive_thread() {
+int main()
+{
+  // Initialize wiringPi; use wiringPi pin numbering.
+  if (wiringPiSetup() == -1) {
+    std::cerr << "wiringPi setup failed." << std::endl;
+    return 1;
+  }
+
+  // Set up GPIO7 as input for the interrupt (using wiringPi numbering)
+  pinMode(7, INPUT);
+
+  // Register the ISR for GPIO7: trigger on falling edge.
+  if (wiringPiISR(7, INT_EDGE_RISING, &gpioInterrupt) < 0) {
+    std::cerr << "Failed to setup ISR for GPIO7." << std::endl;
+    return 1;
+  }
+
+  signal(SIGINT, [](int signum) {
+    state.store(State::Shutdown);
+    shutdown_flag.store(true);
+  });
+
+  std::thread t1([]() {
     while (true) {
-        // Continous receive
-        lora_mtx.lock();
-        packetHandler.poll();
-        lora_mtx.unlock();
+        state.store(State::Send);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        // Shutdown
         if (shutdown_flag.load()) break;
     }
-}
+  });
 
-int main() {
-    std::thread t1(send_thread);
-    std::thread t2(receive_thread);
+  int i = 0;
+  char buffer[256];
 
-    signal(SIGINT, [](int signum) {
-        shutdown_flag.store(true);
-    });
+  // Main loop: state machine similar to your STM code.
+  while (true) {
+    switch (state.load()) {
 
-    t1.join();
-    t2.join();
+      case State::Init:
+        // Transition to wait state after initialization.
+        state.store(State::Wait);
+        // Set packetHandler in receive mode.
+        packetHandler.receive_mode();
+        break;
 
-    return 0;
+      case State::Send:
+        // You can add Send state handling here.
+        sprintf(buffer, "This should be an encrypted message %04d", i++);
+        packetHandler.send((uint8_t*)buffer, strlen(buffer) + 1);
+
+        // Back to receive mode
+        packetHandler.receive_mode();
+        break;
+
+      case State::Receive:
+        // Process incoming packet.
+        packetHandler.receive();
+
+        // we simply return to Wait state.
+        state.store(State::Wait);
+        break;
+
+      case State::Wait:
+        // Clean up expired messages or do other housekeeping.
+        packetHandler.clean();
+        break;
+
+      case State::Shutdown:
+        t1.join();
+        return 0;        
+
+      default:
+        std::cerr << "Unexpected state encountered!" << std::endl;
+        break;
+    }
+  }
+
+  return 0;
 }

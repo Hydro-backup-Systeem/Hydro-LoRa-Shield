@@ -8,7 +8,7 @@ EXEC = lora
 all: $(EXEC)
 
 $(EXEC): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lspidev-lib++
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lspidev-lib++ -lwiringPi
 
 main.o: main.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
