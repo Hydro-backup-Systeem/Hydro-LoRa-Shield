@@ -9,60 +9,68 @@
 #include "./src/LoraHandling.h"
 
 #include "./lib/lora_sx1276.h"
+#include "./lib/packethandler.h"
+#include <signal.h>
+#include <string.h>
 
-spi_config_t spi_config;
-uint8_t buff[256];
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <csignal>
 
-int main() {
-    SPI *spi = NULL;
+std::atomic<bool> shutdown_flag(false);
 
-    spi_config.mode=0;
-    spi_config.speed=5 * pow(10, 6);
-    spi_config.delay=0;
-    spi_config.bits_per_word=8;
+// PacketHandler instance and mutex
+std::mutex lora_mtx;
+static PacketHandler packetHandler;
 
-    spi = new SPI("/dev/spidev0.0", &spi_config);
-
-    spi->begin();
-
-    lora_sx1276 lora;
-    uint8_t res = lora_init(&lora, spi, LORA_BASE_FREQUENCY_EU);
-
-    if (res != LORA_OK) {
-        printf("AAAAAAAAAAHHHHHHHHHH\n\r");
-        return -1;
-    }
-
-    res = lora_version(&lora);
-
-    printf("Lora version: %d\n\r", res);
-
-    // Put LoRa modem into continuous receive mode
-    lora_mode_receive_continuous(&lora);
-    
-    while (true) {
-        // Receive buffer
-        uint8_t buffer[32];
-        // Wait for packet up to 10sec
-        uint8_t res;
-        uint8_t len = lora_receive_packet_blocking(&lora, buffer, sizeof(buffer), 10000, &res);
-        if (res != LORA_OK) {
-            // Receive failed
-            printf("Oh no! failure\n\r");
-        }
-
-        buffer[len] = 0;  // null terminate string to print it
-
-        printf("'%s'\n", buffer);
-    }
-
+void send_thread() {
     // -- Socket handling 
     // InterfaceConnection server(8080);
-
+    
     // if (!server.createSocket()) return 1;
-
+    
     // server.createConnection();
-    // server.clientHandling();
+
+    char buffer[] = "Testing Lora\n";
+
+    while (true) {
+        lora_mtx.lock();
+        packetHandler.send((uint8_t *) buffer, sizeof(buffer));
+        lora_mtx.unlock();
+
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        // Shutdown
+        if (shutdown_flag.load()) break;
+    }
+}
+
+void receive_thread() {
+    while (true) {
+        // Continous receive
+        lora_mtx.lock();
+        packetHandler.poll();
+        lora_mtx.unlock();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Shutdown
+        if (shutdown_flag.load()) break;
+    }
+}
+
+int main() {
+    std::thread t1(send_thread);
+    std::thread t2(receive_thread);
+
+    signal(SIGINT, [](int signum) {
+        shutdown_flag.store(true);
+    });
+
+    t1.join();
+    t2.join();
 
     return 0;
 }

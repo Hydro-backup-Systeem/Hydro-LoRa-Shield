@@ -97,6 +97,7 @@ uint8_t  lora_init(lora_sx1276 *lora, SPI* spi, uint64_t freq);
 // Returns LoRa modem version number (usually 0x12)
 uint8_t  lora_version(lora_sx1276 *lora);
 
+void dump_registers(lora_sx1276* lora);
 
 // LORA mode selection //
 

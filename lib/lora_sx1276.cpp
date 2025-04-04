@@ -111,21 +111,30 @@ static void write_register(lora_sx1276 *lora, uint8_t address, uint8_t value)
   SET_BIT(address, BIT_7);
 
   // Reg address + its new value
-  uint16_t payload = (value << 8) | address;
   uint8_t tx[2] = { address, value };
 
-  lora->spi->write(tx, sizeof(tx));
+  uint8_t rx[2];
+  lora->spi->xfer(tx, sizeof(tx), rx, sizeof(tx));
 }
 
-// Copies bytes from buffer into radio FIFO given len length
+void dump_registers(lora_sx1276* lora) {
+  printf("Lora Register Dump:\n");
+  for (uint8_t addr = 0x00; addr <= 0x64; ++addr) {
+      uint8_t val = read_register(lora, addr);
+      printf("Reg 0x%02X: 0x%02X\n", addr, val);
+  }
+}
+
 static void write_fifo(lora_sx1276 *lora, uint8_t *buffer, uint8_t len, uint8_t mode)
 {
-  uint8_t address = REG_FIFO | BIT_7;
+  uint8_t tx_buff[len + 1];
+  uint8_t rx_buff[len + 1];
 
-  // Start SPI transaction, send address
+  tx_buff[0] = REG_FIFO | BIT_7; // Write bit set (MSB=1)
+  memcpy(&tx_buff[1], buffer, len);
 
-  lora->spi->write(&address, 1);
-  lora->spi->write(buffer, len);
+  // Single SPI transaction: address + data
+  lora->spi->xfer(tx_buff, len + 1, rx_buff, len + 1);
 }
 
 // Reads data "len" size from FIFO into buffer
