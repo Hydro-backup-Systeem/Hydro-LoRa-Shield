@@ -35,6 +35,8 @@ void gpioInterrupt() {
 
 int main()
 {
+  srand(time(NULL));
+
   // Initialize wiringPi; use wiringPi pin numbering.
   if (wiringPiSetup() == -1) {
     std::cerr << "wiringPi setup failed." << std::endl;
@@ -80,7 +82,7 @@ int main()
 
       case State::Send:
         // You can add Send state handling here.
-        sprintf(buffer, "This should be an encrypted message %04d", i++);
+        sprintf(buffer, "This should be an encrypted message %04d, but now this is just a verry long message so multiple packets should be sent meow meow", i++);
         packetHandler.send((uint8_t*)buffer, strlen(buffer) + 1);
 
         // Back to receive mode

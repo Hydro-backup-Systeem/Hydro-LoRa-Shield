@@ -6,6 +6,7 @@
 #include <chrono>
 #include <math.h>
 #include <ctime>
+#include <thread>
 #include <algorithm>
 
 PacketHandler::PacketHandler() {
@@ -33,8 +34,6 @@ void PacketHandler::clean() {
   std::erase_if(messages, [now](const auto& pair) {
     return pair.first.expiration <= now;
   });
-
-  receive();
 };
 
 void PacketHandler::receive_mode() {
@@ -66,13 +65,13 @@ void PacketHandler::send(uint8_t* data, uint32_t size) {
     packet_t* pkt = (packet_t*) malloc(sizeof(packet_t));
 
     pkt->type            = (uint8_t) PacketTypes::MSG;
+    pkt->message_id      = id;
     pkt->fragment_id     = frag_idx;
     pkt->total_fragments = total_fragments;
     pkt->lenght          = packet_len;
-
     memcpy(pkt->data, &data[index], packet_len);
 
-    checksum(pkt, packet_len);
+    pkt->checksum = compute_checksum(pkt, packet_len);
 
     messages[entry].push_back(pkt);
 
@@ -80,13 +79,13 @@ void PacketHandler::send(uint8_t* data, uint32_t size) {
 
     index     += packet_len;
     remaining -= packet_len;
-
   }
 
   auto& packets = messages[entry];
 
   for (auto pk : packets) {
     send_pkt(pk);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
   }
 }
 
@@ -183,18 +182,19 @@ void PacketHandler::send_pkt(packet_t* pkt) {
   }
 }
 
-void PacketHandler::checksum(packet_t* pkt, uint8_t len) {
+uint8_t PacketHandler::compute_checksum(packet_t* pkt, uint8_t len) {
   uint16_t sum = 0;
-  uint8_t* bytes = (uint8_t*)pkt;
+  uint8_t* bytes = pkt->data;
 
-  for (size_t i = 0; i < len; i++) {
+  for (size_t i = 0; i < len; ++i) {
     sum += bytes[i];
   }
 
-  pkt->checksum = ~sum;
+  return static_cast<uint8_t>(~sum);
 }
 
 bool PacketHandler::validate_checksum(packet_t* pkt, uint16_t chksum) {
-  checksum(pkt, pkt->lenght);
-  return pkt->checksum == chksum;
-};
+  // Recompute checksum and compare.
+  uint8_t computed = compute_checksum(pkt, pkt->lenght);
+  return computed == chksum;
+}

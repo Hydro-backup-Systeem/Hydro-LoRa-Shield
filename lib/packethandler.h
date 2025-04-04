@@ -1,13 +1,12 @@
 #pragma once 
 
-#include <ctime>
+#include <stdint.h>
 #include <vector>
 #include <unordered_map>
 
-#include <stdint.h>
-
 #include "packet.h"
 #include "lora_sx1276.h"
+#include <ctime>
 
 #define LEASE_TIME_MS              2500
 
@@ -43,7 +42,7 @@ class PacketHandler {
 
   private:
     void send_pkt(packet_t* pkt);
-    void checksum(packet_t* pkt, uint8_t len);
+    uint8_t compute_checksum(packet_t* pkt, uint8_t len);
     bool validate_checksum(packet_t* pkt, uint16_t chksum);
 
   private:
