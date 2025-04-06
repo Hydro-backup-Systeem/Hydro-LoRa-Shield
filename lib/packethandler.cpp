@@ -41,7 +41,33 @@ void PacketHandler::receive_mode() {
   lora_enable_interrupt_rx_done(&lora);
 }
 
-void PacketHandler::send(uint8_t* data, uint32_t size) {
+void PacketHandler::set_long_range() {
+  lora_mode_sleep(&lora);
+
+  lora_set_spreading_factor(&lora, 8);
+  lora_set_signal_bandwidth(&lora, LORA_BANDWIDTH_62_5_KHZ);
+  lora_set_coding_rate(&lora, LORA_CODING_RATE_4_8);
+  lora_set_tx_power(&lora, 20);
+  lora_set_preamble_length(&lora, 10);
+  lora_set_crc(&lora, 1);
+
+  lora_mode_standby(&lora);
+}
+
+void PacketHandler::set_short_range() {
+  lora_mode_sleep(&lora);
+
+  lora_set_spreading_factor(&lora, 7);
+  lora_set_signal_bandwidth(&lora, LORA_BANDWIDTH_125_KHZ);
+  lora_set_coding_rate(&lora, LORA_CODING_RATE_4_5);
+  lora_set_tx_power(&lora, 10);
+  lora_set_preamble_length(&lora, 5);
+  lora_set_crc(&lora, 0);
+
+  lora_mode_standby(&lora);
+}
+
+void PacketHandler::send(uint8_t* data, uint32_t size, PacketTypes type) {
   const uint8_t MAX_SIZE = PACKET_MAX_SIZE;
 
   uint8_t id = rand();
@@ -64,7 +90,7 @@ void PacketHandler::send(uint8_t* data, uint32_t size) {
 
     packet_t* pkt = (packet_t*) malloc(sizeof(packet_t));
 
-    pkt->type            = (uint8_t) PacketTypes::MSG;
+    pkt->type            = (uint8_t) type;
     pkt->message_id      = id;
     pkt->fragment_id     = frag_idx;
     pkt->total_fragments = total_fragments;

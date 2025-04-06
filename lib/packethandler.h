@@ -35,10 +35,14 @@ class PacketHandler {
     PacketHandler();
 
   public:
-    void clean();
     void receive_mode();
-    void send(uint8_t* data, uint32_t size);
+    void set_long_range();
+    void set_short_range();
+
+    void clean();
+    
     void receive();
+    void send(uint8_t* data, uint32_t size, PacketTypes type);
 
   private:
     void send_pkt(packet_t* pkt);

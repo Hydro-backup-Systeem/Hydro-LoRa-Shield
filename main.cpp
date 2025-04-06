@@ -11,6 +11,12 @@
 // Include your PacketHandler and other Lora handling code
 #include "./lib/packethandler.h"
 
+// This is what you receive from Packettype::ENCRY, it is the counter of AES CTR
+uint32_t iv[] = { 0xcf099dad, 0xcc6321be, 0xd2236383, 0x2ddb2c4d };
+
+// This is an encrypted message that could be received from Packettype::MSG
+uint32_t cipher[] = { 0x297e4e7e, 0xf2d423aa, 0x48254554, 0x78700746, 0xda212de4, 0x71c88d49, 0x8ff51ec8, 0xbbf8b182 };
+
 // Define the state machine as before
 enum class State {
   Init,
@@ -59,15 +65,17 @@ int main()
 
   std::thread t1([]() {
     while (true) {
-        state.store(State::Send);
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+      state.store(State::Send);
+      std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        if (shutdown_flag.load()) break;
+      if (shutdown_flag.load()) break;
     }
   });
 
   int i = 0;
-  char buffer[256];
+  char buffer[512];
+
+  packetHandler.set_long_range();
 
   // Main loop: state machine similar to your STM code.
   while (true) {
@@ -82,8 +90,12 @@ int main()
 
       case State::Send:
         // You can add Send state handling here.
-        sprintf(buffer, "This should be an encrypted message %04d, but now this is just a verry long message so multiple packets should be sent meow meow", i++);
-        packetHandler.send((uint8_t*)buffer, strlen(buffer) + 1);
+        // Send iv key
+        packetHandler.send(reinterpret_cast<uint8_t*>(iv), sizeof(iv) * sizeof(uint32_t), PacketTypes::ENCRYP);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        packetHandler.send(reinterpret_cast<uint8_t*>(cipher), sizeof(cipher) * sizeof(uint32_t), PacketTypes::MSG);
 
         // Back to receive mode
         packetHandler.receive_mode();
