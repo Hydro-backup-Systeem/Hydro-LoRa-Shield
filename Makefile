@@ -1,8 +1,9 @@
+CC = gcc
 CXX = g++
 CXXFLAGS = -Wall -std=c++20 -O2
 
-SRC = main.cpp src/InterfaceConnection.cpp src/LoraHandling.cpp lib/lora_sx1276.cpp lib/packethandler.cpp
-OBJ = main.o src/InterfaceConnection.o src/LoraHandling.o lib/lora_sx1276.o lib/packethandler.o
+SRC = main.cpp src/InterfaceConnection.cpp src/LoraHandling.cpp lib/lora_sx1276.cpp lib/packethandler.cpp lib/aes.c
+OBJ = main.o src/InterfaceConnection.o src/LoraHandling.o lib/lora_sx1276.o lib/packethandler.o lib/aes.o
 EXEC = lora
 
 all: $(EXEC)
@@ -24,6 +25,9 @@ lib/lora_sx1276.o: lib/lora_sx1276.cpp
 
 lib/packethandler.o: lib/packethandler.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+lib/aes.o: lib/aes.c
+	$(CC) -Wall -O2 -c $< -o $@
 
 clean:
 	rm -f $(OBJ) $(EXEC)
