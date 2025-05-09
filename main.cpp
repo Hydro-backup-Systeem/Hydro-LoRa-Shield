@@ -226,7 +226,6 @@ int main()
         }
 
       case State::Receive: {
-        // printf("Receive\n\r");
         // Process incoming packet.
         packetHandler.receive();
 

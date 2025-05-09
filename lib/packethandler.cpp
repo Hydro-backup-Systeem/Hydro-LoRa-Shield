@@ -7,7 +7,6 @@
 #include <cstring>
 #include <algorithm>
 
-// __ALIGN_BEGIN uint32_t PacketHandler::pInitVectAES[4] __ALIGN_END = {0};
 uint32_t PacketHandler::iv[4];
 
 PacketHandler::PacketHandler() {}
@@ -116,8 +115,6 @@ void PacketHandler::poll() {
             }
             printf("\n");
 
-            //swap_endianness(reinterpret_cast<uint32_t*>(reassembled), total_length/4);
-            
             AES_CTR_xcrypt_buffer(&aes_ctx, reassembled, total_length);
             
             msg_callback(reassembled, total_length);
@@ -126,15 +123,9 @@ void PacketHandler::poll() {
           break;
 
         case PacketTypes::ENCRYP: {
-          // printf("Received encryption counter...\n\r");
           uint32_t* iv_vector = reinterpret_cast<uint32_t *>(reassembled);
-           // Convert key and IV to byte arrays for AES
-          // uint8_t key_bytes[16];
-          // uint8_t iv_bytes[16];
-          
-          // u32_to_bytes(aes_key, key_bytes);
-         //  u32_to_bytes(iv_vector, iv_bytes);
           swap_endianness(iv_vector, 4);
+          
           // Initialize AES context with new IV
           memcpy(this->iv, iv_vector, front->lenght);
           AES_ctx_set_iv(&aes_ctx, reinterpret_cast<uint8_t*>(iv_vector));
@@ -187,7 +178,6 @@ void PacketHandler::u32_to_bytes(uint32_t* input, uint8_t* output) {
 void PacketHandler::encryption_handshake(uint8_t msg_id) {
   // printf("Sending IV....\n\r");
   // Generate random values for the AES IV.
-  // Random generate iv_keys
   srand((unsigned)time(NULL));
   for (int i = 0; i < 16; ++i) {
     ((uint8_t*)iv)[i] = rand() & 0xFF;
@@ -204,7 +194,6 @@ void PacketHandler::encryption_handshake(uint8_t msg_id) {
   
   // Initialize AES context with new IV
   AES_init_ctx_iv(&aes_ctx, key_bytes, iv_bytes);
-  // AES_ctx_set_iv(&aes_ctx, iv_bytes);
 
   // Prepare handshake packet.
   packet_t handshakePkt;
@@ -212,7 +201,6 @@ void PacketHandler::encryption_handshake(uint8_t msg_id) {
   handshakePkt.message_id = msg_id;
   handshakePkt.fragment_id = 0;
   handshakePkt.total_fragments = 1;
-  //handshakePkt.lenght = 4 * sizeof(uint32_t);
   handshakePkt.lenght = 16;  // Send full 16 bytes IV
 
   memcpy(handshakePkt.data, iv_bytes, handshakePkt.lenght);
@@ -234,42 +222,18 @@ void PacketHandler::send(uint8_t* data, uint32_t size, PacketTypes type) {
   // Encryption handshake.
   encryption_handshake(entry.id);
 
-  //std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
   // Ensure data is padded to a multiple of 16 bytes.
-  // uint32_t paddedSizeBytes = ((size + 15) / 16) * 16;
-  // uint32_t paddedWordCount = paddedSizeBytes / 4;
   uint32_t paddedSizeBytes = ((size + 15) / 16) * 16;
   uint8_t* paddedData = new uint8_t[paddedSizeBytes]();
   memcpy(paddedData, data, size);
 
-  // uint32_t* plaintext = new uint32_t[paddedWordCount];
-
   if (!paddedData) {
     printf("oh no!\n");
-    delete[] paddedData;  // Changed from free() to delete[]
-    //free(paddedData);
+    delete[] paddedData; 
     return;
   }
 
-  // memset(plaintext, 0, paddedSizeBytes);
-  // memcpy(plaintext, data, size);
-
-  // AES_CTR_xcrypt_buffer(&aes_ctx, (uint8_t*)plaintext, paddedSize);
   AES_CTR_xcrypt_buffer(&aes_ctx, paddedData, paddedSizeBytes);
-  // printf("Encrypted plaintext: %s\n", paddedData);
-
-  // uint8_t* bytePtr = (uint8_t*)plaintext;
-  // for (uint32_t i = 0; i < paddedWordCount * 4; ++i) {
-  //     printf("%02X ", bytePtr[i]);  // Print each byte as two-digit hex
-  //     if ((i + 1) % 16 == 0) printf("\n");  // Optional: newline every 16 bytes
-  // }
-  
-  // for (uint32_t i = 0; i < paddedWordCount; ++i) {
-  //   printf("%08X ", plaintext[i]);  // 8-digit hex for 32-bit word
-  //   if ((i + 1) % 4 == 0) printf("\n");  // Optional: newline every 4 words (16 bytes)
-  // }
-
 
   uint32_t remaining     = paddedSizeBytes;
   uint32_t offset        = 0;
@@ -302,7 +266,6 @@ void PacketHandler::send(uint8_t* data, uint32_t size, PacketTypes type) {
     remaining -= packetLen;
   }
 
-  //free(paddedData);
   delete[] paddedData;  // Changed from free() to delete[]
   // Transmit each fragment.
   for (auto pkt : messages[entry]) {
