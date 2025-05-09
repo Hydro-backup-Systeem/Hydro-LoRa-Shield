@@ -10,6 +10,8 @@
 #include <csignal>
 #include <time.h>
 
+#include "./src/InterfaceConnection.h"
+
 #include "./lib/aes.hpp"
 
 // Include your PacketHandler and other Lora handling code
@@ -72,60 +74,86 @@ uint32_t aes_key[4] = SUPER_SECRET_SANTA_AES_KEY_DO_NOT_SHARE;
 
 int main()
 {  
-  struct AES_ctx ctx;
-  uint8_t key_bytes[16];
-  uint8_t iv_bytes[16];
+  // Socket with flutter
+  // if (wiringPiSetup() == -1) return 1;
 
-  u32_to_bytes(aes_key, key_bytes);
-  u32_to_bytes(iv, iv_bytes);
+  // // Create socket connection
+  // InterfaceConnection server(8080);
 
-  // Message to encrypt
-  char message[] = "im a cat meow";  // 13 bytes
-  uint8_t plaintext[32] = {0};  // Pad to 32 bytes
-  memcpy(plaintext, message, strlen(message));
+  // if (!server.createSocket()) {
+  //     std::cerr << "Failed to create socket" << std::endl;
+  //     return 1;
+  // }
 
-  // Make a working buffer for encryption
-  uint8_t ciphertext[32];
-  memcpy(ciphertext, plaintext, 32);
+  // // Run the connection and client handling in a separate thread
+  // std::thread serverThread([&server]() {
+  //     server.createConnection();
+  //     server.clientHandling();
+  // });
 
-  // Encrypt
-  AES_init_ctx_iv(&ctx, key_bytes, iv_bytes);
-  AES_CTR_xcrypt_buffer(&ctx, ciphertext, 32);
+  // // Main thread can handle other tasks (e.g., GPIO interrupts or state machine)
+  // while (!shutdown_flag.load()) {
+  //     // Perform other tasks here
+  //     std::this_thread::sleep_for(std::chrono::seconds(1));
+  // }
 
-  printf("Encrypted ciphertext:\n");
-  for (int i = 0; i < 32; i++) {
-      printf("%02x ", ciphertext[i]);
-      if ((i + 1) % 16 == 0) printf("\n");
-  }
+  // // Wait for the server thread to finish before exiting
+  // serverThread.join();
 
-  // Now decrypt
-  uint8_t decrypted[32];
-  memcpy(decrypted, ciphertext, 32);
+  // struct AES_ctx ctx;
+  // uint8_t key_bytes[16];
+  // uint8_t iv_bytes[16];
 
-  AES_init_ctx_iv(&ctx, key_bytes, iv_bytes);
-  AES_CTR_xcrypt_buffer(&ctx, decrypted, 32);
+  // u32_to_bytes(aes_key, key_bytes);
+  // u32_to_bytes(iv, iv_bytes);
 
-  // Fix endianness after decryption
-  // fix_endianness_4byte_blocks(decrypted, 32);
+  // // Message to encrypt
+  // char message[] = "im a cat meow";  // 13 bytes
+  // uint8_t plaintext[32] = {0};  // Pad to 32 bytes
+  // memcpy(plaintext, message, strlen(message));
 
-  printf("\nDecrypted hex bytes:\n");
-  for (int i = 0; i < 32; i++) {
-      printf("%02x ", decrypted[i]);
-      if ((i + 1) % 16 == 0) printf("\n");
-  }
+  // // Make a working buffer for encryption
+  // uint8_t ciphertext[32];
+  // memcpy(ciphertext, plaintext, 32);
 
-  printf("\nDecrypted as text: ");
-  for (int i = 0; i < 32; i++) {
-      if (decrypted[i] >= 32 && decrypted[i] <= 126) {
-          printf("%c", decrypted[i]);
-      }
-  }
-  printf("\n");
+  // // Encrypt
+  // AES_init_ctx_iv(&ctx, key_bytes, iv_bytes);
+  // AES_CTR_xcrypt_buffer(&ctx, ciphertext, 32);
 
-  return 0;
+  // printf("Encrypted ciphertext:\n");
+  // for (int i = 0; i < 32; i++) {
+  //     printf("%02x ", ciphertext[i]);
+  //     if ((i + 1) % 16 == 0) printf("\n");
+  // }
+
+  // // Now decrypt
+  // uint8_t decrypted[32];
+  // memcpy(decrypted, ciphertext, 32);
+
+  // AES_init_ctx_iv(&ctx, key_bytes, iv_bytes);
+  // AES_CTR_xcrypt_buffer(&ctx, decrypted, 32);
+
+  // // Fix endianness after decryption
+  // // fix_endianness_4byte_blocks(decrypted, 32);
+
+  // printf("\nDecrypted hex bytes:\n");
+  // for (int i = 0; i < 32; i++) {
+  //     printf("%02x ", decrypted[i]);
+  //     if ((i + 1) % 16 == 0) printf("\n");
+  // }
+
+  // printf("\nDecrypted as text: ");
+  // for (int i = 0; i < 32; i++) {
+  //     if (decrypted[i] >= 32 && decrypted[i] <= 126) {
+  //         printf("%c", decrypted[i]);
+  //     }
+  // }
+  // printf("\n");
+
+  // return 0;
 
 
-  srand(time(NULL));
+  // srand(time(NULL));
 
   // Initialize wiringPi; use wiringPi pin numbering.
   if (wiringPiSetup() == -1) {
@@ -152,7 +180,7 @@ int main()
   std::thread t1([]() {
     while (true) {
       state.store(State::Send);
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      std::this_thread::sleep_for(std::chrono::seconds(3));
 
       if (shutdown_flag.load()) break;
     }
@@ -198,7 +226,7 @@ int main()
         }
 
       case State::Receive: {
-        printf("Receive\n\r");
+        // printf("Receive\n\r");
         // Process incoming packet.
         packetHandler.receive();
 

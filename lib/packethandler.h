@@ -64,6 +64,8 @@ class PacketHandler {
     bool validate_checksum(packet_t* pkt, uint16_t chksum);
     // Perform an encryption handshake with the given message ID.
     void encryption_handshake(uint8_t msg_id);
+    // Helper function to convert uint32_t array to bytes
+    void u32_to_bytes(uint32_t* input, uint8_t* output);
   
   private:
     // Initial AES vector for encryption (aligned as required).

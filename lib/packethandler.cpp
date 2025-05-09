@@ -66,6 +66,16 @@ void PacketHandler::set_msg_callback(msg_data_callback_t callback) {
   this->msg_callback = callback;
 }
 
+void swap_endianness(uint32_t* data, std::size_t word_count) {
+  for (std::size_t i = 0; i < word_count; ++i) {
+    uint32_t v = data[i];
+    data[i] = ((v & 0x000000FFu) << 24) |
+              ((v & 0x0000FF00u) <<  8) |
+              ((v & 0x00FF0000u) >>  8) |
+              ((v & 0xFF000000u) >> 24);
+  }
+}
+
 void PacketHandler::poll() {
   // Process received multi-fragment messages.
   for (auto it = received.begin(); it != received.end(); ) {
@@ -99,22 +109,35 @@ void PacketHandler::poll() {
 
       switch (type) {
         case PacketTypes::MSG:
-            if (msg_callback) {
-
-              // TODO: Decrypt message
-              AES_CTR_xcrypt_buffer(&aes_ctx, reassembled, total_length);
-              msg_callback(reassembled, total_length);
+          if (msg_callback) {
+            printf("Encrypted message: ");
+            for (uint32_t i = 0; i < total_length; i++) {
+                printf("%02X ", reassembled[i]);
             }
+            printf("\n");
+
+            //swap_endianness(reinterpret_cast<uint32_t*>(reassembled), total_length/4);
+            
+            AES_CTR_xcrypt_buffer(&aes_ctx, reassembled, total_length);
+            
+            msg_callback(reassembled, total_length);
+            free(reassembled);
+          }
           break;
 
         case PacketTypes::ENCRYP: {
-          printf("Received encryption counter...\n\r");
+          // printf("Received encryption counter...\n\r");
           uint32_t* iv_vector = reinterpret_cast<uint32_t *>(reassembled);
-
+           // Convert key and IV to byte arrays for AES
+          // uint8_t key_bytes[16];
+          // uint8_t iv_bytes[16];
+          
+          // u32_to_bytes(aes_key, key_bytes);
+         //  u32_to_bytes(iv_vector, iv_bytes);
+          swap_endianness(iv_vector, 4);
+          // Initialize AES context with new IV
           memcpy(this->iv, iv_vector, front->lenght);
-
-          // TODO: Set iv
-          AES_ctx_set_iv(&aes_ctx, (uint8_t*)iv);
+          AES_ctx_set_iv(&aes_ctx, reinterpret_cast<uint8_t*>(iv_vector));
 
           free(reassembled);
           break;
@@ -152,8 +175,17 @@ void PacketHandler::clean() {
   }
 }
 
+void PacketHandler::u32_to_bytes(uint32_t* input, uint8_t* output) {
+  for (int i = 0; i < 4; i++) {
+      output[i * 4 + 0] = (input[i] >> 24) & 0xFF;
+      output[i * 4 + 1] = (input[i] >> 16) & 0xFF;
+      output[i * 4 + 2] = (input[i] >> 8) & 0xFF;
+      output[i * 4 + 3] = input[i] & 0xFF;
+  }
+}
+
 void PacketHandler::encryption_handshake(uint8_t msg_id) {
-  printf("Sending IV....\n\r");
+  // printf("Sending IV....\n\r");
   // Generate random values for the AES IV.
   // Random generate iv_keys
   srand((unsigned)time(NULL));
@@ -161,20 +193,32 @@ void PacketHandler::encryption_handshake(uint8_t msg_id) {
     ((uint8_t*)iv)[i] = rand() & 0xFF;
   }
   
-  printf("0x%04x, 0x%04x, 0x%04x, 0x%04x\n\r", iv[0], iv[1], iv[2], iv[3]);
+  printf("My IV-key: 0x%04x, 0x%04x, 0x%04x, 0x%04x\n\r", iv[0], iv[1], iv[2], iv[3]);
+
+  // Convert key and IV to byte arrays for AES
+  uint8_t key_bytes[16];
+  uint8_t iv_bytes[16];
   
+  u32_to_bytes(aes_key, key_bytes);
+  u32_to_bytes(iv, iv_bytes);
+  
+  // Initialize AES context with new IV
+  AES_init_ctx_iv(&aes_ctx, key_bytes, iv_bytes);
+  // AES_ctx_set_iv(&aes_ctx, iv_bytes);
+
   // Prepare handshake packet.
   packet_t handshakePkt;
   handshakePkt.type = static_cast<uint8_t>(PacketTypes::ENCRYP);
   handshakePkt.message_id = msg_id;
   handshakePkt.fragment_id = 0;
   handshakePkt.total_fragments = 1;
-  handshakePkt.lenght = 4 * sizeof(uint32_t);
+  //handshakePkt.lenght = 4 * sizeof(uint32_t);
+  handshakePkt.lenght = 16;  // Send full 16 bytes IV
 
-  memcpy(handshakePkt.data, PacketHandler::iv, handshakePkt.lenght);
+  memcpy(handshakePkt.data, iv_bytes, handshakePkt.lenght);
   handshakePkt.checksum = compute_checksum(&handshakePkt, handshakePkt.lenght);
 
-  printf("Sending iv key...\n\r");
+  // printf("Sending iv key...\n\r");
   send_pkt(&handshakePkt);
 }
 
@@ -190,50 +234,76 @@ void PacketHandler::send(uint8_t* data, uint32_t size, PacketTypes type) {
   // Encryption handshake.
   encryption_handshake(entry.id);
 
+  //std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
   // Ensure data is padded to a multiple of 16 bytes.
+  // uint32_t paddedSizeBytes = ((size + 15) / 16) * 16;
+  // uint32_t paddedWordCount = paddedSizeBytes / 4;
   uint32_t paddedSizeBytes = ((size + 15) / 16) * 16;
-  uint32_t paddedWordCount = paddedSizeBytes / 4;
+  uint8_t* paddedData = new uint8_t[paddedSizeBytes]();
+  memcpy(paddedData, data, size);
 
-  uint32_t* plaintext = reinterpret_cast<uint32_t*>(malloc(paddedWordCount * sizeof(uint32_t)));
+  // uint32_t* plaintext = new uint32_t[paddedWordCount];
 
-  if (!plaintext) {
+  if (!paddedData) {
     printf("oh no!\n");
-    free(plaintext);
+    delete[] paddedData;  // Changed from free() to delete[]
+    //free(paddedData);
     return;
   }
 
-  memset(plaintext, 0, paddedWordCount * sizeof(uint32_t));
-  memcpy(plaintext, data, size);
+  // memset(plaintext, 0, paddedSizeBytes);
+  // memcpy(plaintext, data, size);
 
-  AES_CTR_xcrypt_buffer(&aes_ctx, (uint8_t*)plaintext, paddedWordCount);
+  // AES_CTR_xcrypt_buffer(&aes_ctx, (uint8_t*)plaintext, paddedSize);
+  AES_CTR_xcrypt_buffer(&aes_ctx, paddedData, paddedSizeBytes);
+  // printf("Encrypted plaintext: %s\n", paddedData);
 
-  uint32_t index = 0;
-  uint8_t fragIdx = 0;
-  uint32_t remaining = size;
-  uint8_t totalFragments = size / MAX_SIZE + ((size % MAX_SIZE) ? 1 : 0);
+  // uint8_t* bytePtr = (uint8_t*)plaintext;
+  // for (uint32_t i = 0; i < paddedWordCount * 4; ++i) {
+  //     printf("%02X ", bytePtr[i]);  // Print each byte as two-digit hex
+  //     if ((i + 1) % 16 == 0) printf("\n");  // Optional: newline every 16 bytes
+  // }
+  
+  // for (uint32_t i = 0; i < paddedWordCount; ++i) {
+  //   printf("%08X ", plaintext[i]);  // 8-digit hex for 32-bit word
+  //   if ((i + 1) % 4 == 0) printf("\n");  // Optional: newline every 4 words (16 bytes)
+  // }
 
-  while (remaining > 0) {
+
+  uint32_t remaining     = paddedSizeBytes;
+  uint32_t offset        = 0;
+  uint32_t rawFragments  = (paddedSizeBytes + MAX_SIZE - 1) / MAX_SIZE;
+  uint8_t totalFragments = static_cast<uint8_t>(rawFragments);
+  uint8_t fragIdx        = 0;
+
+  while (remaining) {
     uint32_t packetLen = (remaining > MAX_SIZE) ? MAX_SIZE : remaining;
-    packet_t* pkt = reinterpret_cast<packet_t*>(malloc(sizeof(packet_t)));
+    packet_t* pkt = new packet_t;
     if (!pkt) break;
 
     pkt->type = static_cast<uint8_t>(type);
+    pkt->message_id = id;
     pkt->fragment_id = fragIdx;
     pkt->total_fragments = totalFragments;
     pkt->lenght = packetLen;
 
-    memcpy(pkt->data, reinterpret_cast<uint8_t*>(plaintext) + index, packetLen);
+    memcpy( pkt->data, 
+            paddedData + offset, 
+            packetLen);
+
     pkt->checksum = compute_checksum(pkt, packetLen);
 
     messages[entry].push_back(pkt);
 
+    // Advance
     fragIdx++;
-    index += packetLen;
+    offset += packetLen;
     remaining -= packetLen;
   }
 
-  free(plaintext);
-
+  //free(paddedData);
+  delete[] paddedData;  // Changed from free() to delete[]
   // Transmit each fragment.
   for (auto pkt : messages[entry]) {
     send_pkt(pkt);
@@ -283,7 +353,7 @@ void PacketHandler::receive() {
 }
 
 void PacketHandler::send_pkt(packet_t* pkt) {
-  printf("Sending packet type %d\n\r", pkt->type);
+  // printf("Sending packet type %d\n\r", pkt->type);
 
   uint8_t buffer[pkt->lenght + 9];
   buffer[0] = 0xA5;
