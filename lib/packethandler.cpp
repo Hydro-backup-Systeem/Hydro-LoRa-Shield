@@ -6,10 +6,9 @@
 #include <stdio.h>
 #include <cstring>
 #include <algorithm>
+#include <iostream>
 
 uint32_t PacketHandler::iv[4];
-
-PacketHandler::PacketHandler() {}
 
 void PacketHandler::init() {
   SPI *spi = NULL;
@@ -116,6 +115,7 @@ void PacketHandler::poll() {
             printf("\n");
 
             AES_CTR_xcrypt_buffer(&aes_ctx, reassembled, total_length);
+            std::cout << "Message " << reassembled << std::endl;
             
             msg_callback(reassembled, total_length);
             free(reassembled);

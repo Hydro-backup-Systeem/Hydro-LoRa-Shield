@@ -17,11 +17,13 @@ class InterfaceConnection {
   public: 
     // Constructor and deconstructor
     InterfaceConnection(int port);
-    ~InterfaceConnection();
+    ~InterfaceConnection() {};
+
+    void shutdown();
 
     // Extra connection/handling methods
     bool createSocket();
-    void createConnection();
+    void acceptConnection();
     void clientHandling();
     void closeConnection();
 

@@ -37,8 +37,6 @@ typedef void(*msg_data_callback_t)(uint8_t* data, size_t len);
 
 class PacketHandler {
   public:
-    PacketHandler();
-  
     // Switch LoRa to continuous receive mode with IRQ enabled.
     void receive_mode();
   
