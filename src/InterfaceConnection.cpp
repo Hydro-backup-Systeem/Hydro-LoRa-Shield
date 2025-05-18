@@ -15,76 +15,39 @@ extern std::mutex        phMutex;
 extern PacketHandler     packetHandler;
 extern std::atomic<bool> shutdown_flag;
 
-InterfaceConnection::InterfaceConnection(int port)
- : port(port), server(0), client_socket(0) {}
-
-bool InterfaceConnection::createSocket() {
-  server = socket(AF_INET, SOCK_STREAM, 0);
-  if (server < 0) {
-    perror("Socket failed");
-    return false;
-  }
-
-  sockaddr_in addr{};
-  addr.sin_family      = AF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
-  addr.sin_port        = htons(port);
-
-  if (bind(server, (sockaddr*)&addr, sizeof(addr)) < 0) {
-    perror("Bind failed");
-    close(server);
-    return false;
-  }
-
-  if (listen(server, 3) < 0) {
-    perror("Listen failed");
-    close(server);
-    return false;
-  }
-
-  return true;
+void InterfaceConnection::dispatch_on_data(void* arg, uint8_t* data, size_t data_len) {
+  InterfaceConnection* conn = static_cast<InterfaceConnection*>(arg);
+  conn->on_data(arg, data, data_len);
 }
 
-void InterfaceConnection::acceptConnection() {
-  client_socket = accept(server, nullptr, nullptr);
-  if (client_socket < 0) {
-    if (errno == EWOULDBLOCK || errno == EAGAIN) {
-      // timeout: no client this cycle
-      return;
+InterfaceConnection::InterfaceConnection() {
+  unix_socket = std::make_unique<UnixSocket>("/tmp/hydro.sock", 256, dispatch_on_data, this);
+  unix_socket->start();
+ }
+
+void InterfaceConnection::on_data(void* arg, uint8_t* data, size_t data_len) {
+  std::string message((char*)data, data_len);
+  std::cout << "Received: " << message << std::endl;
+
+  {
+    std::lock_guard<std::mutex> lk(phMutex);
+    if (message.find("PRESET:") != std::string::npos) {
+      uint8_t presetID = message[7] - '0';
+      packetHandler.send((uint8_t*)&presetID, sizeof(presetID), PacketTypes::DICT);
+    } else if (message.find("FLAG:") != std::string::npos) {
+      std::cout << "Sending flags" << std::endl;
+      char flagID = atoi(message.substr(5, 1).c_str());
+      packetHandler.send((uint8_t*)&flagID, sizeof(flagID), PacketTypes::FLAGS);
+    } else {
+      packetHandler.send((uint8_t*)data, data_len, PacketTypes::MSG);
     }
-    perror("Accept failed");
-    return;
   }
-  std::cout << "Client connected!\n";
 }
 
-void InterfaceConnection::clientHandling() {
-  if (client_socket <= 0) return;
-
-  char buffer[1024];
-  while (!shutdown_flag.load()) {
-    int valread = read(client_socket, buffer, sizeof(buffer));
-    if (valread <= 0) break;  // disconnect or error
-
-    {
-      std::cout << "Sending" << std::endl;
-      std::lock_guard<std::mutex> lk(phMutex);
-      packetHandler.send((uint8_t*)buffer, valread, PacketTypes::MSG);
-      packetHandler.receive_mode();
-    }
-
-    // echo
-    std::string resp = "C++ Server: ";
-    resp.append(buffer, valread);
-    send(client_socket, resp.data(), resp.size(), 0);
-  }
-
-  close(client_socket);
-  client_socket = 0;
-  std::cout << "Client disconnected.\n";
+void InterfaceConnection::sendToClient(const char* data, size_t length){
+  unix_socket->send_data((uint8_t*)data, length);  
 }
 
 void InterfaceConnection::shutdown() {
-  if (server > 0) close(server);
-  if (client_socket > 0) close(client_socket);
+  unix_socket->stop();
 }

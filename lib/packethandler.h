@@ -6,7 +6,7 @@
 
 #include "aes.hpp"
 #include "packet.h"
-#include "lora_sx1276.h"
+#include "lora.h"
 
 #include <ctime>
 
@@ -37,12 +37,9 @@ typedef void(*msg_data_callback_t)(uint8_t* data, size_t len);
 
 class PacketHandler {
   public:
-    // Switch LoRa to continuous receive mode with IRQ enabled.
-    void receive_mode();
-  
-    void set_long_range();
-    void set_short_range();
-  
+    PacketHandler(LoRa* lora) : lora(lora) {};
+
+  public:
     void set_msg_callback(msg_data_callback_t callback);
   
     void init();
@@ -71,8 +68,7 @@ class PacketHandler {
     uint32_t aes_key[4] = SUPER_SECRET_SANTA_AES_KEY_DO_NOT_SHARE;
   
     // LoRa chip instance.
-    lora_sx1276 lora;
-    spi_config_t spi_config;
+    LoRa* lora;
 
     AES_ctx aes_ctx;
   

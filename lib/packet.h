@@ -18,6 +18,10 @@
  
      ACK,  // Acknowledge a whole message
      NACK, // Not Acknowledge, data should be list of missing fragments
+
+     FLAGS, // Send flags for the message
+     DICT // Send dictionary for the message
+
  };
  
  typedef struct {

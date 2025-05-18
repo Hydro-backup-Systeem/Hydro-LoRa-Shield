@@ -11,53 +11,8 @@
 uint32_t PacketHandler::iv[4];
 
 void PacketHandler::init() {
-  SPI *spi = NULL;
-
-  spi_config.mode=0;
-  spi_config.speed=1 * pow(10, 6); // Freq - SPI
-  spi_config.delay=0;
-  spi_config.bits_per_word=8;
-  
-  spi = new SPI("/dev/spidev0.0", &spi_config);
-  spi->begin();
-
-  uint8_t res = lora_init(&lora, spi, LORA_BASE_FREQUENCY_EU);
+  srand((unsigned)time(NULL));
   AES_init_ctx_iv(&aes_ctx, reinterpret_cast<uint8_t*>(aes_key), reinterpret_cast<uint8_t*>(iv));
-  if (res != LORA_OK) {
-    // This should not happen
-    throw "Error init";
-  }
-}
-
-void PacketHandler::receive_mode() {
-  lora_mode_receive_continuous(&lora);
-  lora_enable_interrupt_rx_done(&lora);
-}
-
-void PacketHandler::set_long_range() {
-  lora_mode_sleep(&lora);
-
-  lora_set_spreading_factor(&lora, 8);
-  lora_set_signal_bandwidth(&lora, LORA_BANDWIDTH_62_5_KHZ);
-  lora_set_coding_rate(&lora, LORA_CODING_RATE_4_8);
-  lora_set_tx_power(&lora, 20);
-  lora_set_preamble_length(&lora, 10);
-  lora_set_crc(&lora, 1);
-
-  lora_mode_standby(&lora);
-}
-
-void PacketHandler::set_short_range() {
-  lora_mode_sleep(&lora);
-
-  lora_set_spreading_factor(&lora, 7);
-  lora_set_signal_bandwidth(&lora, LORA_BANDWIDTH_125_KHZ);
-  lora_set_coding_rate(&lora, LORA_CODING_RATE_4_5);
-  lora_set_tx_power(&lora, 10);
-  lora_set_preamble_length(&lora, 5);
-  lora_set_crc(&lora, 0);
-
-  lora_mode_standby(&lora);
 }
 
 void PacketHandler::set_msg_callback(msg_data_callback_t callback) {
@@ -80,6 +35,7 @@ void PacketHandler::poll() {
     auto& fragments = it->second;
 
     if (!fragments.empty() && fragments[0]->total_fragments == fragments.size()) {
+      std::cout << "All fragments received for message ID: " << (int)it->first.id << std::endl;
       // All fragments received; process complete message.
       // Sort the message based on id
       std::sort(fragments.begin(), fragments.end(), [](const packet_t* a, const packet_t* b) {
@@ -114,21 +70,58 @@ void PacketHandler::poll() {
             }
             printf("\n");
 
+            // Decrypt the message
             AES_CTR_xcrypt_buffer(&aes_ctx, reassembled, total_length);
-            std::cout << "Message " << reassembled << std::endl;
+            // Get the padding length from the last byte
+            int padding_length = reassembled[total_length - 1];
             
-            msg_callback(reassembled, total_length);
+            // Validate padding length
+            if (padding_length > 0 && padding_length < 16) {
+              // PKCS#7 padding: the last byte indicates the number of padding bytes
+              for (uint32_t i = total_length - padding_length; i < total_length; i++) {
+                if (reassembled[i] != padding_length) {
+                  padding_length = -1; // Invalid padding
+                  break;
+                }
+              }
+            } else if (total_length % 16 == 0) {
+              padding_length = 0; // No padding
+            } else {
+              padding_length = -2; // Invalid padding
+            }
+
+            // Verify padding is valid (should be between 1 and 15)
+            if (padding_length < 16 && padding_length >= 0) {
+              // Calculate actual message length without padding
+              uint32_t actual_length = total_length - padding_length;
+              
+              // Call callback with unpadded data
+              msg_callback(reassembled, actual_length);
+            }
+            else {
+              // Invalid padding, handle error
+              std::cerr << "Invalid padding length: " << padding_length << std::endl;
+            }
+
             free(reassembled);
           }
           break;
 
         case PacketTypes::ENCRYP: {
+          
           uint32_t* iv_vector = reinterpret_cast<uint32_t *>(reassembled);
           swap_endianness(iv_vector, 4);
           
           // Initialize AES context with new IV
           memcpy(this->iv, iv_vector, front->lenght);
           AES_ctx_set_iv(&aes_ctx, reinterpret_cast<uint8_t*>(iv_vector));
+          
+          std::cout << "Received IV" << std::endl;
+          std::cout << "IV: ";
+          for (uint32_t i = 0; i < 4; i++) {
+            std::cout << std::hex << iv_vector[i] << " ";
+          }
+          std::cout << std::endl;
 
           free(reassembled);
           break;
@@ -177,8 +170,7 @@ void PacketHandler::u32_to_bytes(uint32_t* input, uint8_t* output) {
 
 void PacketHandler::encryption_handshake(uint8_t msg_id) {
   // printf("Sending IV....\n\r");
-  // Generate random values for the AES IV.
-  srand((unsigned)time(NULL));
+  // Generate random values for the AES IV
   for (int i = 0; i < 16; ++i) {
     ((uint8_t*)iv)[i] = rand() & 0xFF;
   }
@@ -225,6 +217,11 @@ void PacketHandler::send(uint8_t* data, uint32_t size, PacketTypes type) {
   // Ensure data is padded to a multiple of 16 bytes.
   uint32_t paddedSizeBytes = ((size + 15) / 16) * 16;
   uint8_t* paddedData = new uint8_t[paddedSizeBytes]();
+
+  // PKCS#7 padding:
+  uint8_t padding_value = (uint8_t)paddedSizeBytes - size;
+  memset(paddedData, padding_value, paddedSizeBytes);
+
   memcpy(paddedData, data, size);
 
   if (!paddedData) {
@@ -278,8 +275,7 @@ void PacketHandler::receive() {
   uint8_t rx_buffer[PACKET_MAX_SIZE + 9];
 
   // Blocking call with a 500ms timeout.
-  uint8_t rx_received = lora_receive_packet_blocking(&lora, rx_buffer, sizeof(rx_buffer), 500, &error);
-
+  uint8_t rx_received = lora->receive(rx_buffer, sizeof(rx_buffer), 500, &error);
   if (rx_received == 0 || error != LORA_OK) {
     return;
   }
@@ -312,6 +308,8 @@ void PacketHandler::receive() {
     0xFFFFFFFF // All fragments must arrive within 1 second.
   };
 
+  std::cout << "Pushing packet to received queue" << std::endl;
+
   received[entry].push_back(pkt);
 }
 
@@ -329,14 +327,11 @@ void PacketHandler::send_pkt(packet_t* pkt) {
   memcpy(&buffer[7], pkt->data, pkt->lenght);
   buffer[pkt->lenght + 8] = pkt->checksum;
 
-  uint8_t res = LORA_BUSY;
-  while (res == LORA_BUSY) {
-    res = lora_send_packet(&lora, buffer, pkt->lenght + 9);
-  }
+  bool succes = false;
 
-  if (res != LORA_OK) {
-    // TODO
-    printf("Oh no pizza didn't send\n\r");
+  while (!succes) {
+    succes = lora->send(buffer, pkt->lenght + 9);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
